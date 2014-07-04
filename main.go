@@ -11,6 +11,7 @@ import (
 var db *PagerDB
 
 func main() {
+	runtime.GOMAXPROCS(2)
 	db = NewPagerDB()
 	defer db.Close()
 

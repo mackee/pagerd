@@ -46,6 +46,7 @@ func (db *PagerDB) GetByOffset(offset int, limit int) [][][]byte {
 	cacheIter := db.cachedb.NewIterator(cachero)
 	cacheIter.SeekToFirst()
 	cursor := 0
+	lastKey := []byte("")
 	for {
 		if !cacheIter.Valid() {
 			break
@@ -53,6 +54,7 @@ func (db *PagerDB) GetByOffset(offset int, limit int) [][][]byte {
 		cursorStr := string(cacheIter.Value())
 		var err error
 		cursor, err = strconv.Atoi(cursorStr)
+		lastKey = cacheIter.Key()
 		if err != nil {
 			log.Println("cache error %s", err)
 			return make([][][]byte, 0)
@@ -66,28 +68,36 @@ func (db *PagerDB) GetByOffset(offset int, limit int) [][][]byte {
 	ro := levigo.NewReadOptions()
 	iter := db.leveldb.NewIterator(ro)
 	cacheOffset := 0
-	if cacheIter.Valid() && cursor == offset {
+	if cursor == offset {
 		cacheOffset = offset
-		iter.Seek(cacheIter.Key())
-	} else if cacheIter.Valid() {
-		cacheIter.Prev()
-
-		startKey := cacheIter.Key()
-		iter.Seek(startKey)
-		if !iter.Valid() {
-			log.Println("offset error: minus value")
-			return make([][][]byte, 0)
-		}
-
-		cacheOffsetStr := string(cacheIter.Value())
-		var err error
-		cacheOffset, err = strconv.Atoi(cacheOffsetStr)
-		if err != nil {
-			log.Println("cache error %s", err)
-			return make([][][]byte, 0)
+		iter.Seek(lastKey)
+	} else if cursor < offset {
+		if cursor > 0 {
+			cacheOffset = cursor
+			iter.Seek(lastKey)
+		} else {
+			iter.SeekToFirst()
 		}
 	} else {
-		iter.SeekToFirst()
+		cacheIter.Prev()
+		if cacheIter.Valid() {
+			startKey := cacheIter.Key()
+			iter.Seek(startKey)
+			if !iter.Valid() {
+				log.Println("offset error: minus value")
+				return make([][][]byte, 0)
+			}
+
+			cacheOffsetStr := string(cacheIter.Value())
+			var err error
+			cacheOffset, err = strconv.Atoi(cacheOffsetStr)
+			if err != nil {
+				log.Println("cache error %s", err)
+				return make([][][]byte, 0)
+			}
+		} else {
+			iter.SeekToFirst()
+		}
 	}
 
 	for i := cacheOffset; i < offset; i++ {
@@ -97,7 +107,6 @@ func (db *PagerDB) GetByOffset(offset int, limit int) [][][]byte {
 		}
 		iter.Next()
 	}
-
 	wo := levigo.NewWriteOptions()
 	db.cachedb.Put(wo, iter.Key(), []byte(strconv.Itoa(offset)))
 
